@@ -14,7 +14,7 @@ DAYS = ["월요일", "화요일", "수요일", "목요일", "금요일", "토요
 PROCESSED_UPDATES = []
 
 
-def fetch(url, encoding='euc-kr', timeout=5):
+def fetch(url, encoding='euc-kr', timeout=8):
     res = requests.get(url, headers=HEADERS, timeout=timeout)
     res.encoding = encoding
     return BeautifulSoup(res.text, 'html.parser')
@@ -31,7 +31,22 @@ def get_last_trading_date():
         return f"{t.year}년 {t.month:02d}월 {t.day:02d}일 {DAYS[t.weekday()]}"
 
 
-def parse_naver_sise(url):
+def format_market_cap(val_eok):
+    v = int(val_eok)
+    jo = v // 10000
+    eok = v % 10000
+    if jo > 0 and eok > 0:
+        return f"{jo:,}조{eok:,}억"
+    elif jo > 0:
+        return f"{jo:,}조"
+    return f"{eok:,}억"
+
+
+def parse_quant_page(url):
+    """
+    sise_quant 페이지 파싱 (거래량 기준 정렬).
+    tds: [2]현재가 [4]등락률 [6]거래대금(실제) [9]시가총액(억)
+    """
     try:
         table = fetch(url).select_one('table.type_2')
         if not table:
@@ -39,7 +54,7 @@ def parse_naver_sise(url):
         stocks = []
         for row in table.select('tr'):
             tds = row.select('td')
-            if len(tds) < 7:
+            if len(tds) < 10:
                 continue
             a = tds[1].select_one('a')
             tm = re.search(r'code=(\d+)', a.get('href', '')) if a else None
@@ -47,59 +62,115 @@ def parse_naver_sise(url):
                 continue
             price = float(re.sub(r'[^\d]', '', tds[2].get_text(strip=True)) or 0)
             rate = float(re.sub(r'[^\d\.-]', '', tds[4].get_text(strip=True)) or 0)
-            val = float(re.sub(r'[^\d]', '', tds[6].get_text(strip=True)) or 0)
-            # 등락 방향 판별: 하락 클래스 확인
-            rate_cell = tds[3]
-            if rate_cell.select_one('span.nv01') or '하락' in rate_cell.get('class', []):
+            if '하락' in tds[3].get_text():
                 rate = -abs(rate)
-            stocks.append({'ticker': tm.group(1), 'name': a.get_text(strip=True),
-                           'price': price, 'rate': rate, 'value': val})
+            val = float(re.sub(r'[^\d]', '', tds[6].get_text(strip=True)) or 0)
+            cap_raw = float(re.sub(r'[^\d]', '', tds[9].get_text(strip=True)) or 0)
+            stocks.append({
+                'ticker': tm.group(1), 'name': a.get_text(strip=True),
+                'price': price, 'rate': rate, 'value': val,
+                'market_sum': format_market_cap(cap_raw) if cap_raw else "N/A",
+                'actual': True,
+            })
         return stocks
     except Exception:
         return []
 
 
-def get_market_cap(ticker):
+def parse_market_sum_page(url):
+    """
+    sise_market_sum 페이지 파싱 (시가총액 기준 정렬).
+    tds: [2]현재가 [4]등락률 [6]시가총액(억) [9]거래량
+    거래대금 = price × volume / 1,000,000 (백만원 단위 추정값)
+    """
     try:
-        soup = fetch(f"https://finance.naver.com/item/main.naver?code={ticker}", 'utf-8', timeout=5)
-        ms = soup.select_one('#_market_sum')
-        if ms:
-            market_sum = re.sub(r'\s+', ' ', ms.get_text(strip=True)).replace('조 ', '조')
-            if not market_sum.endswith('억'):
-                market_sum += '억'
-        else:
-            market_sum = "N/A"
-        return market_sum
+        table = fetch(url).select_one('table.type_2')
+        if not table:
+            return []
+        stocks = []
+        for row in table.select('tr'):
+            tds = row.select('td')
+            if len(tds) < 10:
+                continue
+            a = tds[1].select_one('a')
+            tm = re.search(r'code=(\d+)', a.get('href', '')) if a else None
+            if not tm:
+                continue
+            price = float(re.sub(r'[^\d]', '', tds[2].get_text(strip=True)) or 0)
+            rate = float(re.sub(r'[^\d\.-]', '', tds[4].get_text(strip=True)) or 0)
+            if '하락' in tds[3].get_text():
+                rate = -abs(rate)
+            cap_raw = float(re.sub(r'[^\d]', '', tds[6].get_text(strip=True)) or 0)
+            volume = float(re.sub(r'[^\d]', '', tds[9].get_text(strip=True)) or 0)
+            est_val = price * volume / 1_000_000
+            stocks.append({
+                'ticker': tm.group(1), 'name': a.get_text(strip=True),
+                'price': price, 'rate': rate, 'value': est_val,
+                'market_sum': format_market_cap(cap_raw) if cap_raw else "N/A",
+                'actual': False,
+            })
+        return stocks
     except Exception:
-        return "N/A"
+        return []
 
 
-def fetch_market_cap_wrapper(stock):
-    return get_market_cap(stock['ticker'])
+def get_actual_deal_value(ticker):
+    """개별 종목 페이지의 <dd>거래대금 N백만</dd> 에서 실제 거래대금 추출"""
+    try:
+        soup = fetch(f"https://finance.naver.com/item/main.naver?code={ticker}", 'utf-8', timeout=8)
+        for dd in soup.select('dd'):
+            text = dd.get_text(strip=True)
+            if text.startswith('거래대금'):
+                val = float(re.sub(r'[^\d]', '', text) or 0)
+                return val
+    except Exception:
+        pass
+    return None
 
 
 def get_top10_by_volume():
-    urls = [
-        "https://finance.naver.com/sise/sise_quant.naver?rankingType=deal_value&sosok=0",
-        "https://finance.naver.com/sise/sise_quant.naver?rankingType=deal_value&sosok=1",
+    quant_urls = (
+        [f"https://finance.naver.com/sise/sise_quant.naver?sosok=0&page={p}" for p in range(1, 3)] +
+        [f"https://finance.naver.com/sise/sise_quant.naver?sosok=1&page={p}" for p in range(1, 3)]
+    )
+    msum_urls = [
+        "https://finance.naver.com/sise/sise_market_sum.naver?sosok=0&page=1",
+        "https://finance.naver.com/sise/sise_market_sum.naver?sosok=0&page=2",
+        "https://finance.naver.com/sise/sise_market_sum.naver?sosok=1&page=1",
+        "https://finance.naver.com/sise/sise_market_sum.naver?sosok=1&page=2",
     ]
-    with ThreadPoolExecutor(max_workers=3) as ex:
+
+    with ThreadPoolExecutor(max_workers=12) as ex:
         date_f = ex.submit(get_last_trading_date)
-        k_f = ex.submit(parse_naver_sise, urls[0])
-        kd_f = ex.submit(parse_naver_sise, urls[1])
+        quant_results = list(ex.map(parse_quant_page, quant_urls))
+        msum_results = list(ex.map(parse_market_sum_page, msum_urls))
         final_date = date_f.result()
-        combined = k_f.result() + kd_f.result()
 
-    combined.sort(key=lambda x: x['value'], reverse=True)
-    top10 = combined[:10]
+    # sise_quant(실제 거래대금) 우선, sise_market_sum(추정값)으로 보완
+    stock_map = {}
+    for stocks in msum_results:
+        for s in stocks:
+            if s['ticker'] not in stock_map:
+                stock_map[s['ticker']] = s
+    for stocks in quant_results:
+        for s in stocks:
+            stock_map[s['ticker']] = s  # 실제값으로 덮어쓰기
 
-    with ThreadPoolExecutor(max_workers=10) as ex:
-        market_caps = list(ex.map(fetch_market_cap_wrapper, top10))
+    combined = sorted(stock_map.values(), key=lambda x: x['value'], reverse=True)
+    candidates = combined[:15]
 
-    for s, ms in zip(top10, market_caps):
-        s['market_sum'] = ms
+    # 추정값만 있는 종목의 실제 거래대금 보정
+    needs_actual = [s for s in candidates if not s['actual']]
+    if needs_actual:
+        with ThreadPoolExecutor(max_workers=len(needs_actual)) as ex:
+            actuals = list(ex.map(lambda s: get_actual_deal_value(s['ticker']), needs_actual))
+        for s, actual_val in zip(needs_actual, actuals):
+            if actual_val:
+                s['value'] = actual_val
+                s['actual'] = True
 
-    return top10, final_date
+    candidates.sort(key=lambda x: x['value'], reverse=True)
+    return candidates[:10], final_date
 
 
 def format_volume_report(stocks, date_str):
