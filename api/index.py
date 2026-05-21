@@ -31,6 +31,16 @@ def get_last_trading_date():
         return f"{t.year}년 {t.month:02d}월 {t.day:02d}일 {DAYS[t.weekday()]}"
 
 
+def format_deal_value(val_baekman):
+    """백만원 단위 거래대금을 '10조6600억' 형식으로 변환. 1조 미만이면 조 생략."""
+    eok = round(val_baekman / 10000) * 100  # 100억 단위 반올림
+    jo = eok // 10000
+    rem = eok % 10000
+    if jo > 0:
+        return f"{jo}조{rem}억"
+    return f"{rem}억"
+
+
 def format_market_cap(val_eok):
     v = int(val_eok)
     jo = v // 10000
@@ -181,12 +191,10 @@ def format_volume_report(stocks, date_str):
         rate = s['rate']
         rate_str = f"+{rate:.2f}%" if rate >= 0 else f"{rate:.2f}%"
         share = (s['value'] / total_value * 100) if total_value > 0 else 0
-        val_str = f"{int(s['value']):,}"
-
         lines.append(
             f"{i + 1}위🔹 *{s['name']}* ({rate_str})\n"
             f"Cap {s['market_sum']}\n"
-            f"거래대금 {val_str}백만\n"
+            f"거래대금 {format_deal_value(s['value'])}\n"
             f"거래대금 차지율 : {share:.1f}%"
         )
 
