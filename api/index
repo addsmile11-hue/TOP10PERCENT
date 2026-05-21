@@ -148,7 +148,7 @@ def telegram_webhook():
     chat_id = msg.get("chat", {}).get("id")
 
     if text == '/check' and chat_id:
-        send_telegram(chat_id, "🔄 거래대금 상위 10개 종목을 스크리닝 중입니다. 잠시만 기다려주세요...")
+        send_telegram(chat_id, "⏳ 분석 중...")
         stocks, date_str = get_top10_by_volume()
         body = format_volume_report(stocks, date_str)
         send_telegram(chat_id, body, markdown=True)
