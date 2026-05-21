@@ -1,5 +1,5 @@
 from flask import Flask, request, jsonify
-import requests, os, re, datetime
+import requests, os, re, datetime, io, csv
 from bs4 import BeautifulSoup
 from concurrent.futures import ThreadPoolExecutor
 
@@ -201,16 +201,26 @@ def format_volume_report(stocks, date_str):
     return "\n\n".join(lines)
 
 
-def format_excel_report(stocks, date_str):
+def make_csv_bytes(stocks, date_str):
+    """엑셀에서 바로 열 수 있는 UTF-8 BOM CSV 생성"""
     total_value = sum(s['value'] for s in stocks)
-    lines = [f"{date_str} 거래대금 상위 10위"]
-    lines.append("순위\t종목명\t등락률\t거래대금차지율")
+    buf = io.StringIO()
+    writer = csv.writer(buf)
+    writer.writerow(['순위', '종목명', '등락률', '거래대금차지율'])
     for i, s in enumerate(stocks):
         rate = s['rate']
         rate_str = f"+{rate:.2f}%" if rate >= 0 else f"{rate:.2f}%"
         share = (s['value'] / total_value * 100) if total_value > 0 else 0
-        lines.append(f"{i + 1}\t{s['name']}\t{rate_str}\t{share:.1f}%")
-    return "\n".join(lines)
+        writer.writerow([i + 1, s['name'], rate_str, f"{share:.1f}%"])
+    return buf.getvalue().encode('utf-8-sig')
+
+
+def send_csv(chat_id, filename, csv_bytes):
+    requests.post(
+        f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendDocument",
+        data={"chat_id": chat_id},
+        files={"document": (filename, csv_bytes, "text/csv")},
+    )
 
 
 def send_telegram(chat_id, text, markdown=False):
@@ -245,7 +255,7 @@ def telegram_webhook():
         stocks, date_str = get_top10_by_volume()
         body = format_volume_report(stocks, date_str)
         send_telegram(chat_id, body, markdown=True)
-        excel = format_excel_report(stocks, date_str)
-        send_telegram(chat_id, excel)
+        csv_bytes = make_csv_bytes(stocks, date_str)
+        send_csv(chat_id, f"거래대금상위10위_{date_str}.csv", csv_bytes)
 
     return jsonify({"status": "success"})
