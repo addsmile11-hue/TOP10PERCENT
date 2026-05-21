@@ -203,9 +203,18 @@ def format_volume_report(stocks, date_str):
 
 def make_csv_bytes(stocks, date_str):
     """엑셀에서 바로 열 수 있는 UTF-8 BOM CSV 생성"""
+    # date_str 예: "2026년 05월 21일 목요일" → "2026-05-21", "목요일"
+    m = re.match(r'(\d{4})년 (\d{2})월 (\d{2})일 (\S+)', date_str)
+    if m:
+        date_fmt = f"{m.group(1)}-{m.group(2)}-{m.group(3)}"
+        day_str = m.group(4)
+    else:
+        date_fmt, day_str = date_str, ''
+
     total_value = sum(s['value'] for s in stocks)
     buf = io.StringIO()
     writer = csv.writer(buf)
+    writer.writerow([date_fmt, '', day_str, ''])
     writer.writerow(['순위', '종목명', '등락률', '거래대금차지율'])
     for i, s in enumerate(stocks):
         rate = s['rate']
