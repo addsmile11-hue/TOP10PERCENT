@@ -185,7 +185,7 @@ def get_top10_by_volume():
 
 def format_volume_report(stocks, date_str):
     total_value = sum(s['value'] for s in stocks)
-    lines = [f"📋 *\\[{date_str}\\] 거래대금 상위 10위*\n"]
+    lines = [f"🐎 [{date_str}] 거래대금 상위 10위\n"]
 
     for i, s in enumerate(stocks):
         rate = s['rate']
@@ -199,6 +199,18 @@ def format_volume_report(stocks, date_str):
         )
 
     return "\n\n".join(lines)
+
+
+def format_excel_report(stocks, date_str):
+    total_value = sum(s['value'] for s in stocks)
+    lines = [f"{date_str} 거래대금 상위 10위"]
+    lines.append("순위\t종목명\t등락률\t거래대금차지율")
+    for i, s in enumerate(stocks):
+        rate = s['rate']
+        rate_str = f"+{rate:.2f}%" if rate >= 0 else f"{rate:.2f}%"
+        share = (s['value'] / total_value * 100) if total_value > 0 else 0
+        lines.append(f"{i + 1}\t{s['name']}\t{rate_str}\t{share:.1f}%")
+    return "\n".join(lines)
 
 
 def send_telegram(chat_id, text, markdown=False):
@@ -233,5 +245,7 @@ def telegram_webhook():
         stocks, date_str = get_top10_by_volume()
         body = format_volume_report(stocks, date_str)
         send_telegram(chat_id, body, markdown=True)
+        excel = format_excel_report(stocks, date_str)
+        send_telegram(chat_id, excel)
 
     return jsonify({"status": "success"})
