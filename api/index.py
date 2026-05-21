@@ -130,6 +130,8 @@ def send_telegram(chat_id, text, markdown=False):
 
 
 @app.route('/', methods=['POST', 'GET'])
+@app.route('/api', methods=['POST', 'GET'])
+@app.route('/api/', methods=['POST', 'GET'])
 def telegram_webhook():
     if request.method == 'GET':
         return "Stock Volume Screener is running!"
