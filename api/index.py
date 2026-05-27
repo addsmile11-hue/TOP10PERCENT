@@ -67,7 +67,7 @@ def parse_quant_page(url):
             if len(tds) < 10:
                 continue
             a = tds[1].select_one('a')
-            tm = re.search(r'code=(\d+)', a.get('href', '')) if a else None
+            tm = re.search(r'code=([A-Za-z0-9]+)', a.get('href', '')) if a else None
             if not tm:
                 continue
             price = float(re.sub(r'[^\d]', '', tds[2].get_text(strip=True)) or 0)
@@ -103,7 +103,7 @@ def parse_market_sum_page(url):
             if len(tds) < 10:
                 continue
             a = tds[1].select_one('a')
-            tm = re.search(r'code=(\d+)', a.get('href', '')) if a else None
+            tm = re.search(r'code=([A-Za-z0-9]+)', a.get('href', '')) if a else None
             if not tm:
                 continue
             price = float(re.sub(r'[^\d]', '', tds[2].get_text(strip=True)) or 0)
