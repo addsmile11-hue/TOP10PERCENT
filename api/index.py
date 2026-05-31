@@ -185,7 +185,10 @@ def get_top10_by_volume():
 
 def format_volume_report(stocks, date_str):
     total_value = sum(s['value'] for s in stocks)
-    lines = [f"🐎 [{date_str}] 거래대금 상위 10위\n"]
+    lines = [
+        f"🐎 [{date_str}] 거래대금 상위 10위\n"
+        f"TOP 10 거래대금 : {format_deal_value(total_value)}"
+    ]
 
     for i, s in enumerate(stocks):
         rate = s['rate']
@@ -215,6 +218,7 @@ def make_csv_bytes(stocks, date_str):
     buf = io.StringIO()
     writer = csv.writer(buf)
     writer.writerow([date_fmt, '', day_str, ''])
+    writer.writerow(['TOP 10 거래대금', format_deal_value(total_value), '', ''])
     writer.writerow(['순위', '종목명', '등락률', '거래대금차지율'])
     for i, s in enumerate(stocks):
         rate = s['rate']
